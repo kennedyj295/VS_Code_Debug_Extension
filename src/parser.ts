@@ -2,49 +2,89 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-// export function determineProjectType (folders: readonly vscode.WorkspaceFolder[]) {
-//     // loop through all folders
-//     folders.forEach(folder => {
-//         const folderPath = folder.uri.fsPath;
-//         console.log(folderPath);
-//     });
-// }
-
 let classFiles: string[] = [];
 
-function findClassFolders(folders: readonly vscode.WorkspaceFolder[]) {
+export function findJavaFiles(folders: readonly vscode.WorkspaceFolder[]) {
     folders.forEach(folder => {
-        let dir = folder.uri;
-        processProjectDirectory(dir);
-    }
-    );
+        processProjectDirectory(folder.uri);
+    });
+    return classFiles;
 }
 
-function processProjectDirectory(dir: vscode.Uri) {
-    fs.readdir(dir, { withFileTypes: true }, (err, files) => {
+export function processProjectDirectory(dir: vscode.Uri) {
+
+    fs.readdir(dir.fsPath, { withFileTypes: true }, (err, files) => {
         if (err) {
             console.error('An error occurred', err);
             return;
         }
-        
         files.forEach(file => {
-            const fullPath = path.join(dir, file.name);
-
+            const fullPath = path.join(dir.fsPath, file.name);
             if (file.isDirectory()) {
-                processProjectDirectory(fullPath);
-            } else if (file.isFile()) {
-                processFile(fullPath);
+                if (file.name !== 'lib' && file.name !== 'target') {
+                    processProjectDirectory(vscode.Uri.file(fullPath));
+                }
+            } else if (file.isFile() && fullPath.endsWith('.java')) {
+                readFile(file.path).then(javaFileContent => {
+                    let modifiedContent = addDebuggerLines(javaFileContent);
+                    writeFile(file.path, modifiedContent);
+                }).catch(err => {
+                    console.error('An error has occurred reading the file', err);
+                });
             }
+        });
+    });
+    return classFiles;
+}
+
+function addDebuggerLines(content: string) {
+    if (content.includes('interface') || content.includes('abstract class')) {
+        return content;
+    }
+
+    const lines = content.split('\n');
+    let insideMethod = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].match(/\b(public|private|protected)\b/) && lines[i].includes('(')) {
+            insideMethod = true;
+        }
+
+        if (insideMethod) {
+            while (!lines[i].includes('{') && i < lines.length) {
+                i++;
+            }
+            if (i < lines.length) {
+                lines.splice(i + 1, 0, 'DebugLogger.log();');
+            }
+            insideMethod = false;
+        }
+    }
+
+    return lines.join('\n');
+}
+
+
+function readFile(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filePath, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(data);
         });
     });
 }
 
-function processFile (filePath: string) {
-    
-}
-
-export function writeDebuggingLines(folders: readonly vscode.WorkspaceFolder[]) {
-    // find folders with class files
-    const classFolders = findClassFolders(folders);
-    // loop through class file
+function writeFile(filePath: string, content: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        fs.writeFile(filePath, content, 'utf8', err => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve();
+        });
+    });
 }
