@@ -1,0 +1,10 @@
+out/
+dist/
+*.vsix
+node_modules/
+.vscode/
+.DS_Store
+Thumbs.db
+npm-debug.log
+.env
+settings.json
